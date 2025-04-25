@@ -35,9 +35,13 @@ async function reconnect(host: string, port: number): Promise<boolean> {
     });
 }
 
+let listSongsResultCache: Map<string, [Array<SongDataShort>, number]> = new Map();
+const listSongsCacheTimeout = 360000;
+
 async function listSongs(searchFor: string): Promise<Array<SongDataShort>> {
     return new Promise<Array<SongDataShort>>(
         async (res) => {
+			let start = Date.now();
             if (searchFor == "" || !MPD_CONNECTED) {
                 res([]);
                 return;
@@ -46,6 +50,23 @@ async function listSongs(searchFor: string): Promise<Array<SongDataShort>> {
             searchFor = searchFor.replaceAll('\'', '');
 
             let songs: Array<SongDataShort> = [];
+			
+			let cache = listSongsResultCache.entries().filter(
+				(entry) => {
+					let [search, [, time]] = entry;
+					return search === searchFor && (Date.now() - time < listSongsCacheTimeout);
+				}
+			);
+			if (cache != undefined) {
+				let [, [cachedSongs, ]] = cache?.next().value ?? ["", [undefined, 0]];
+				if (cachedSongs) {
+					res(cachedSongs);
+			console.log("Took:");
+			console.log(Date.now() - start);
+					return;
+				}
+			}
+
             let result = [];
             try {
                 result = await MPD_CLIENT.api.db.find("(any contains_ci '" + searchFor + "')", "sort", "Album");
@@ -66,7 +87,11 @@ async function listSongs(searchFor: string): Promise<Array<SongDataShort>> {
                 );
             }
 
+			listSongsResultCache.set(searchFor, [songs, Date.now()]);
+
             res(songs);
+			console.log("Took:");
+			console.log(Date.now() - start);
         }
     );
 }
